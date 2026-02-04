@@ -52,6 +52,59 @@ export const deleteQuizSet = async (quizSetId: string): Promise<void> => {
   await saveAllData(data);
 };
 
+// 개별 문제 삭제
+export const deleteQuestion = async (quizSetId: string, questionId: string): Promise<void> => {
+  const data = await getAllData();
+  const quizSet = data.quizSets.find(qs => qs.id === quizSetId);
+  if (quizSet) {
+    quizSet.questions = quizSet.questions.filter(q => q.id !== questionId);
+    // 문제가 0개가 되면 퀴즈 세트도 삭제
+    if (quizSet.questions.length === 0) {
+      data.quizSets = data.quizSets.filter(qs => qs.id !== quizSetId);
+    }
+    data.results = data.results.filter(r => r.questionId !== questionId);
+    await saveAllData(data);
+  }
+};
+
+// 개별 문제 수정
+export const updateQuestion = async (
+  quizSetId: string,
+  questionId: string,
+  updates: { question?: string; answer?: boolean; explanation?: string }
+): Promise<void> => {
+  const data = await getAllData();
+  const quizSet = data.quizSets.find(qs => qs.id === quizSetId);
+  if (quizSet) {
+    const question = quizSet.questions.find(q => q.id === questionId);
+    if (question) {
+      if (updates.question !== undefined) question.question = updates.question;
+      if (updates.answer !== undefined) question.answer = updates.answer;
+      if (updates.explanation !== undefined) question.explanation = updates.explanation;
+      await saveAllData(data);
+    }
+  }
+};
+
+// 개별 문제 추가
+export const addQuestion = async (
+  quizSetId: string,
+  question: { question: string; answer: boolean; explanation?: string }
+): Promise<void> => {
+  const data = await getAllData();
+  const quizSet = data.quizSets.find(qs => qs.id === quizSetId);
+  if (quizSet) {
+    quizSet.questions.push({
+      id: generateId(),
+      question: question.question,
+      answer: question.answer,
+      explanation: question.explanation,
+      createdAt: Date.now(),
+    });
+    await saveAllData(data);
+  }
+};
+
 // 모든 퀴즈 세트 가져오기
 export const getAllQuizSets = async (): Promise<QuizSet[]> => {
   const data = await getAllData();

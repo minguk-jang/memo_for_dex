@@ -84,7 +84,7 @@ export default function CameraScreen() {
     if (!capturedImage) return;
 
     if (!hasApiKey()) {
-      Alert.alert('오류', 'API 키가 설정되지 않았습니다.\n.env 파일에 EXPO_PUBLIC_ANTHROPIC_API_KEY 또는 EXPO_PUBLIC_OPENAI_API_KEY를 설정해주세요.');
+      Alert.alert('오류', 'API 키가 설정되지 않았습니다.\n.env 파일에 EXPO_PUBLIC_GLM_API_KEY를 설정해주세요.');
       return;
     }
 
@@ -113,7 +113,15 @@ export default function CameraScreen() {
   // 문제 수정
   const updateQuestion = (id: string, field: keyof EditableQuestion, value: string | boolean) => {
     setExtractedQuestions(prev =>
-      prev.map(q => (q.id === id ? { ...q, [field]: value } : q))
+      prev.map(q => {
+        if (q.id === id) {
+          if (field === 'answer' && typeof value === 'string') {
+            return { ...q, [field]: value.toLowerCase() === 'true' };
+          }
+          return { ...q, [field]: value };
+        }
+        return q;
+      })
     );
   };
 
@@ -223,7 +231,7 @@ export default function CameraScreen() {
               value={q.question}
               onChangeText={(text) => updateQuestion(q.id, 'question', text)}
               placeholder="문제를 입력하세요"
-              multiline
+              multiline={true}
             />
 
             <View style={styles.answerRow}>
@@ -247,7 +255,7 @@ export default function CameraScreen() {
               value={q.explanation}
               onChangeText={(text) => updateQuestion(q.id, 'explanation', text)}
               placeholder="해설 (선택사항)"
-              multiline
+              multiline={true}
             />
           </View>
         ))}
@@ -296,7 +304,7 @@ export default function CameraScreen() {
   // 카메라 화면
   return (
     <View style={styles.container}>
-      <CameraView style={styles.camera} ref={cameraRef}>
+      <CameraView style={styles.camera} ref={cameraRef} facing="back">
         <View style={styles.cameraOverlay}>
           <View style={styles.guideFrame} />
           <Text style={styles.guideText}>문서를 프레임 안에 맞춰주세요</Text>

@@ -8,16 +8,21 @@ import {
   Dimensions,
   Alert,
   RefreshControl,
+  Modal,
+  TextInput,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
-import { PieChart, BarChart } from 'react-native-chart-kit';
 import {
   calculateStats,
   getAllQuizSets,
   deleteQuizSet,
+  deleteQuestion,
+  updateQuestion,
+  addQuestion,
   clearAllData,
+  generateId,
 } from '../services/storageService';
-import { OverallStats, QuizSet } from '../types';
+import { OverallStats, QuizSet, QuizQuestion } from '../types';
 
 const screenWidth = Dimensions.get('window').width;
 
@@ -26,6 +31,20 @@ export default function DashboardScreen() {
   const [quizSets, setQuizSets] = useState<QuizSet[]>([]);
   const [refreshing, setRefreshing] = useState(false);
   const [activeTab, setActiveTab] = useState<'stats' | 'manage'>('stats');
+  const [expandedSetId, setExpandedSetId] = useState<string | null>(null);
+
+  // 문제 편집 모달 상태
+  const [editModalVisible, setEditModalVisible] = useState(false);
+  const [editingQuestion, setEditingQuestion] = useState<{
+    quizSetId: string;
+    question: QuizQuestion | null;
+    isNew: boolean;
+  } | null>(null);
+  const [editForm, setEditForm] = useState({
+    question: '',
+    answer: true,
+    explanation: '',
+  });
 
   // 데이터 로드
   const loadData = async () => {
@@ -49,6 +68,11 @@ export default function DashboardScreen() {
     setRefreshing(false);
   };
 
+  // 퀴즈 세트 펼치기/접기
+  const toggleExpand = (quizSetId: string) => {
+    setExpandedSetId(expandedSetId === quizSetId ? null : quizSetId);
+  };
+
   // 퀴즈 세트 삭제
   const handleDeleteQuizSet = (quizSet: QuizSet) => {
     Alert.alert(
@@ -61,11 +85,78 @@ export default function DashboardScreen() {
           style: 'destructive',
           onPress: async () => {
             await deleteQuizSet(quizSet.id);
+            setExpandedSetId(null);
             await loadData();
           },
         },
       ]
     );
+  };
+
+  // 개별 문제 삭제
+  const handleDeleteQuestion = (quizSetId: string, question: QuizQuestion) => {
+    Alert.alert(
+      '문제 삭제',
+      '이 문제를 삭제하시겠습니까?',
+      [
+        { text: '취소', style: 'cancel' },
+        {
+          text: '삭제',
+          style: 'destructive',
+          onPress: async () => {
+            await deleteQuestion(quizSetId, question.id);
+            await loadData();
+          },
+        },
+      ]
+    );
+  };
+
+  // 문제 편집 모달 열기
+  const openEditModal = (quizSetId: string, question: QuizQuestion | null = null) => {
+    setEditingQuestion({
+      quizSetId,
+      question,
+      isNew: question === null,
+    });
+    setEditForm({
+      question: question?.question || '',
+      answer: question?.answer ?? true,
+      explanation: question?.explanation || '',
+    });
+    setEditModalVisible(true);
+  };
+
+  // 문제 저장
+  const handleSaveQuestion = async () => {
+    if (!editingQuestion) return;
+
+    if (!editForm.question.trim()) {
+      Alert.alert('오류', '문제 내용을 입력해주세요.');
+      return;
+    }
+
+    if (editingQuestion.isNew) {
+      await addQuestion(editingQuestion.quizSetId, {
+        question: editForm.question,
+        answer: editForm.answer,
+        explanation: editForm.explanation || undefined,
+      });
+    } else if (editingQuestion.question) {
+      await updateQuestion(
+        editingQuestion.quizSetId,
+        editingQuestion.question.id,
+        {
+          question: editForm.question,
+          answer: editForm.answer,
+          explanation: editForm.explanation || undefined,
+        }
+      );
+    }
+
+    setEditModalVisible(false);
+    setEditingQuestion(null);
+    await loadData();
   };
 
   // 전체 데이터 초기화
@@ -80,58 +171,12 @@ export default function DashboardScreen() {
           style: 'destructive',
           onPress: async () => {
             await clearAllData();
+            setExpandedSetId(null);
             await loadData();
           },
         },
       ]
     );
-  };
-
-  // 파이 차트 데이터
-  const pieChartData = stats && stats.totalAttempts > 0
-    ? [
-        {
-          name: '정답',
-          population: stats.totalCorrect,
-          color: '#34C759',
-          legendFontColor: '#333',
-          legendFontSize: 14,
-        },
-        {
-          name: '오답',
-          population: stats.totalIncorrect,
-          color: '#FF3B30',
-          legendFontColor: '#333',
-          legendFontSize: 14,
-        },
-      ]
-    : [];
-
-  // 바 차트 데이터 (정확도 낮은 문제 top 5)
-  const barChartData = stats && stats.questionStats.length > 0
-    ? {
-        labels: stats.questionStats
-          .filter(q => q.totalAttempts > 0)
-          .slice(0, 5)
-          .map((_, i) => `Q${i + 1}`),
-        datasets: [
-          {
-            data: stats.questionStats
-              .filter(q => q.totalAttempts > 0)
-              .slice(0, 5)
-              .map(q => q.accuracy),
-          },
-        ],
-      }
-    : null;
-
-  const chartConfig = {
-    backgroundGradientFrom: '#fff',
-    backgroundGradientTo: '#fff',
-    color: (opacity = 1) => `rgba(0, 122, 255, ${opacity})`,
-    strokeWidth: 2,
-    barPercentage: 0.6,
-    decimalPlaces: 0,
   };
 
   return (
@@ -202,40 +247,6 @@ export default function DashboardScreen() {
             </View>
           </View>
 
-          {/* 파이 차트 */}
-          {pieChartData.length > 0 && (
-            <View style={styles.chartCard}>
-              <Text style={styles.cardTitle}>정답/오답 비율</Text>
-              <PieChart
-                data={pieChartData}
-                width={screenWidth - 40}
-                height={200}
-                chartConfig={chartConfig}
-                accessor="population"
-                backgroundColor="transparent"
-                paddingLeft="15"
-                absolute
-              />
-            </View>
-          )}
-
-          {/* 바 차트 */}
-          {barChartData && barChartData.labels.length > 0 && (
-            <View style={styles.chartCard}>
-              <Text style={styles.cardTitle}>문제별 정답률 (낮은 순)</Text>
-              <BarChart
-                data={barChartData}
-                width={screenWidth - 40}
-                height={220}
-                chartConfig={chartConfig}
-                yAxisSuffix="%"
-                yAxisLabel=""
-                style={styles.barChart}
-                fromZero
-              />
-            </View>
-          )}
-
           {/* 취약 문제 목록 */}
           {stats && stats.questionStats.filter(q => q.totalAttempts > 0).length > 0 && (
             <View style={styles.weakCard}>
@@ -293,20 +304,84 @@ export default function DashboardScreen() {
 
           {quizSets.length > 0 ? (
             quizSets.map(quizSet => (
-              <View key={quizSet.id} style={styles.quizSetCard}>
-                <View style={styles.quizSetInfo}>
-                  <Text style={styles.quizSetTitle}>{quizSet.title}</Text>
-                  <Text style={styles.quizSetMeta}>
-                    {quizSet.questions.length}문제 •
-                    {new Date(quizSet.createdAt).toLocaleDateString('ko-KR')}
-                  </Text>
-                </View>
+              <View key={quizSet.id} style={styles.quizSetContainer}>
+                {/* 퀴즈 세트 헤더 */}
                 <TouchableOpacity
-                  style={styles.deleteButton}
-                  onPress={() => handleDeleteQuizSet(quizSet)}
+                  style={styles.quizSetCard}
+                  onPress={() => toggleExpand(quizSet.id)}
+                  activeOpacity={0.7}
                 >
-                  <Text style={styles.deleteButtonText}>삭제</Text>
+                  <View style={styles.quizSetInfo}>
+                    <View style={styles.quizSetHeader}>
+                      <Text style={styles.expandIcon}>
+                        {expandedSetId === quizSet.id ? '▼' : '▶'}
+                      </Text>
+                      <Text style={styles.quizSetTitle}>{quizSet.title}</Text>
+                    </View>
+                    <Text style={styles.quizSetMeta}>
+                      {quizSet.questions.length}문제 • {new Date(quizSet.createdAt).toLocaleDateString('ko-KR')}
+                    </Text>
+                  </View>
+                  <TouchableOpacity
+                    style={styles.deleteSetButton}
+                    onPress={() => handleDeleteQuizSet(quizSet)}
+                  >
+                    <Text style={styles.deleteSetButtonText}>삭제</Text>
+                  </TouchableOpacity>
                 </TouchableOpacity>
+
+                {/* 펼쳐진 문제 목록 */}
+                {expandedSetId === quizSet.id && (
+                  <View style={styles.questionsContainer}>
+                    {quizSet.questions.map((question, index) => (
+                      <View key={question.id} style={styles.questionItem}>
+                        <View style={styles.questionContent}>
+                          <View style={styles.questionHeader}>
+                            <Text style={styles.questionNumber}>Q{index + 1}</Text>
+                            <View style={[
+                              styles.answerBadge,
+                              question.answer ? styles.answerO : styles.answerX
+                            ]}>
+                              <Text style={styles.answerBadgeText}>
+                                {question.answer ? 'O' : 'X'}
+                              </Text>
+                            </View>
+                          </View>
+                          <Text style={styles.questionText} numberOfLines={3}>
+                            {question.question}
+                          </Text>
+                          {question.explanation && (
+                            <Text style={styles.explanationText} numberOfLines={2}>
+                              💡 {question.explanation}
+                            </Text>
+                          )}
+                        </View>
+                        <View style={styles.questionActions}>
+                          <TouchableOpacity
+                            style={styles.editButton}
+                            onPress={() => openEditModal(quizSet.id, question)}
+                          >
+                            <Text style={styles.editButtonText}>수정</Text>
+                          </TouchableOpacity>
+                          <TouchableOpacity
+                            style={styles.deleteQuestionButton}
+                            onPress={() => handleDeleteQuestion(quizSet.id, question)}
+                          >
+                            <Text style={styles.deleteQuestionButtonText}>삭제</Text>
+                          </TouchableOpacity>
+                        </View>
+                      </View>
+                    ))}
+
+                    {/* 문제 추가 버튼 */}
+                    <TouchableOpacity
+                      style={styles.addQuestionButton}
+                      onPress={() => openEditModal(quizSet.id)}
+                    >
+                      <Text style={styles.addQuestionButtonText}>+ 문제 추가</Text>
+                    </TouchableOpacity>
+                  </View>
+                )}
               </View>
             ))
           ) : (
@@ -322,6 +397,83 @@ export default function DashboardScreen() {
       )}
 
       <View style={styles.bottomSpacer} />
+
+      {/* 문제 편집 모달 */}
+      <Modal
+        visible={editModalVisible}
+        animationType="slide"
+        transparent={true}
+        onRequestClose={() => setEditModalVisible(false)}
+      >
+        <View style={styles.modalOverlay}>
+          <View style={styles.modalContent}>
+            <Text style={styles.modalTitle}>
+              {editingQuestion?.isNew ? '문제 추가' : '문제 수정'}
+            </Text>
+
+            <Text style={styles.inputLabel}>문제</Text>
+            <TextInput
+              style={styles.textInput}
+              value={editForm.question}
+              onChangeText={(text) => setEditForm({ ...editForm, question: text })}
+              placeholder="문제 내용을 입력하세요"
+              multiline
+            />
+
+            <Text style={styles.inputLabel}>정답</Text>
+            <View style={styles.answerToggle}>
+              <TouchableOpacity
+                style={[
+                  styles.answerOption,
+                  editForm.answer && styles.answerOptionActive
+                ]}
+                onPress={() => setEditForm({ ...editForm, answer: true })}
+              >
+                <Text style={[
+                  styles.answerOptionText,
+                  editForm.answer && styles.answerOptionTextActive
+                ]}>O (참)</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={[
+                  styles.answerOption,
+                  !editForm.answer && styles.answerOptionActive
+                ]}
+                onPress={() => setEditForm({ ...editForm, answer: false })}
+              >
+                <Text style={[
+                  styles.answerOptionText,
+                  !editForm.answer && styles.answerOptionTextActive
+                ]}>X (거짓)</Text>
+              </TouchableOpacity>
+            </View>
+
+            <Text style={styles.inputLabel}>해설 (선택)</Text>
+            <TextInput
+              style={[styles.textInput, styles.explanationInput]}
+              value={editForm.explanation}
+              onChangeText={(text) => setEditForm({ ...editForm, explanation: text })}
+              placeholder="해설을 입력하세요"
+              multiline
+            />
+
+            <View style={styles.modalActions}>
+              <TouchableOpacity
+                style={styles.cancelButton}
+                onPress={() => setEditModalVisible(false)}
+              >
+                <Text style={styles.cancelButtonText}>취소</Text>
+              </TouchableOpacity>
+              <TouchableOpacity
+                style={styles.saveButton}
+                onPress={handleSaveQuestion}
+              >
+                <Text style={styles.saveButtonText}>저장</Text>
+              </TouchableOpacity>
+            </View>
+          </View>
+        </View>
+      </Modal>
     </ScrollView>
   );
 }
@@ -419,18 +571,6 @@ const styles = StyleSheet.create({
     fontWeight: 'bold',
     color: '#fff',
   },
-  chartCard: {
-    backgroundColor: '#fff',
-    marginHorizontal: 20,
-    marginBottom: 15,
-    padding: 20,
-    borderRadius: 15,
-    alignItems: 'center',
-  },
-  barChart: {
-    marginTop: 10,
-    borderRadius: 10,
-  },
   weakCard: {
     backgroundColor: '#fff',
     marginHorizontal: 20,
@@ -518,10 +658,12 @@ const styles = StyleSheet.create({
     color: '#FF3B30',
     fontSize: 14,
   },
-  quizSetCard: {
-    backgroundColor: '#fff',
+  quizSetContainer: {
     marginHorizontal: 20,
     marginBottom: 10,
+  },
+  quizSetCard: {
+    backgroundColor: '#fff',
     padding: 15,
     borderRadius: 12,
     flexDirection: 'row',
@@ -531,27 +673,221 @@ const styles = StyleSheet.create({
   quizSetInfo: {
     flex: 1,
   },
+  quizSetHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+  },
+  expandIcon: {
+    fontSize: 12,
+    color: '#666',
+    marginRight: 8,
+  },
   quizSetTitle: {
     fontSize: 16,
     fontWeight: '600',
-    marginBottom: 4,
   },
   quizSetMeta: {
     fontSize: 13,
     color: '#666',
+    marginTop: 4,
+    marginLeft: 20,
   },
-  deleteButton: {
+  deleteSetButton: {
     backgroundColor: '#FF3B30',
     paddingHorizontal: 15,
     paddingVertical: 8,
     borderRadius: 8,
   },
-  deleteButtonText: {
+  deleteSetButtonText: {
     color: '#fff',
     fontSize: 14,
     fontWeight: '600',
   },
+  questionsContainer: {
+    backgroundColor: '#fff',
+    marginTop: 2,
+    borderRadius: 12,
+    padding: 10,
+  },
+  questionItem: {
+    backgroundColor: '#f9f9f9',
+    borderRadius: 10,
+    padding: 12,
+    marginBottom: 8,
+  },
+  questionContent: {
+    marginBottom: 10,
+  },
+  questionHeader: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    marginBottom: 8,
+  },
+  questionNumber: {
+    fontSize: 14,
+    fontWeight: 'bold',
+    color: '#007AFF',
+    marginRight: 10,
+  },
+  answerBadge: {
+    paddingHorizontal: 10,
+    paddingVertical: 3,
+    borderRadius: 10,
+  },
+  answerO: {
+    backgroundColor: '#34C759',
+  },
+  answerX: {
+    backgroundColor: '#FF3B30',
+  },
+  answerBadgeText: {
+    color: '#fff',
+    fontSize: 12,
+    fontWeight: 'bold',
+  },
+  questionText: {
+    fontSize: 14,
+    color: '#333',
+    lineHeight: 20,
+  },
+  explanationText: {
+    fontSize: 12,
+    color: '#666',
+    marginTop: 6,
+    fontStyle: 'italic',
+  },
+  questionActions: {
+    flexDirection: 'row',
+    justifyContent: 'flex-end',
+  },
+  editButton: {
+    backgroundColor: '#007AFF',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+    marginRight: 8,
+  },
+  editButtonText: {
+    color: '#fff',
+    fontSize: 13,
+  },
+  deleteQuestionButton: {
+    backgroundColor: '#FF3B30',
+    paddingHorizontal: 12,
+    paddingVertical: 6,
+    borderRadius: 6,
+  },
+  deleteQuestionButtonText: {
+    color: '#fff',
+    fontSize: 13,
+  },
+  addQuestionButton: {
+    backgroundColor: '#f0f0f0',
+    borderRadius: 10,
+    padding: 12,
+    alignItems: 'center',
+    borderWidth: 2,
+    borderColor: '#ddd',
+    borderStyle: 'dashed',
+  },
+  addQuestionButtonText: {
+    color: '#666',
+    fontSize: 14,
+  },
   bottomSpacer: {
     height: 40,
+  },
+  // 모달 스타일
+  modalOverlay: {
+    flex: 1,
+    backgroundColor: 'rgba(0, 0, 0, 0.5)',
+    justifyContent: 'flex-end',
+  },
+  modalContent: {
+    backgroundColor: '#fff',
+    borderTopLeftRadius: 20,
+    borderTopRightRadius: 20,
+    padding: 20,
+    maxHeight: '80%',
+  },
+  modalTitle: {
+    fontSize: 20,
+    fontWeight: 'bold',
+    marginBottom: 20,
+    textAlign: 'center',
+  },
+  inputLabel: {
+    fontSize: 14,
+    fontWeight: '600',
+    color: '#333',
+    marginBottom: 8,
+  },
+  textInput: {
+    backgroundColor: '#f5f5f5',
+    borderRadius: 10,
+    padding: 12,
+    fontSize: 15,
+    marginBottom: 15,
+    minHeight: 80,
+    textAlignVertical: 'top',
+  },
+  explanationInput: {
+    minHeight: 60,
+  },
+  answerToggle: {
+    flexDirection: 'row',
+    marginBottom: 15,
+  },
+  answerOption: {
+    flex: 1,
+    paddingVertical: 12,
+    alignItems: 'center',
+    backgroundColor: '#f5f5f5',
+    marginRight: 10,
+    borderRadius: 10,
+    borderWidth: 2,
+    borderColor: '#f5f5f5',
+  },
+  answerOptionActive: {
+    borderColor: '#007AFF',
+    backgroundColor: '#e6f2ff',
+  },
+  answerOptionText: {
+    fontSize: 16,
+    color: '#666',
+  },
+  answerOptionTextActive: {
+    color: '#007AFF',
+    fontWeight: 'bold',
+  },
+  modalActions: {
+    flexDirection: 'row',
+    marginTop: 10,
+  },
+  cancelButton: {
+    flex: 1,
+    backgroundColor: '#ddd',
+    paddingVertical: 15,
+    borderRadius: 10,
+    marginRight: 10,
+    alignItems: 'center',
+  },
+  cancelButtonText: {
+    color: '#333',
+    fontSize: 16,
+    fontWeight: 'bold',
+  },
+  saveButton: {
+    flex: 1,
+    backgroundColor: '#007AFF',
+    paddingVertical: 15,
+    borderRadius: 10,
+    marginLeft: 10,
+    alignItems: 'center',
+  },
+  saveButtonText: {
+    color: '#fff',
+    fontSize: 16,
+    fontWeight: 'bold',
   },
 });

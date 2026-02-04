@@ -1,11 +1,11 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import {
   View,
   Text,
   StyleSheet,
   TouchableOpacity,
-  Animated,
   Alert,
+  Animated,
 } from 'react-native';
 import { useFocusEffect } from '@react-navigation/native';
 import {
@@ -28,8 +28,10 @@ export default function QuizScreen() {
   const [quizState, setQuizState] = useState<QuizState>('idle');
   const [selectedAnswer, setSelectedAnswer] = useState<boolean | null>(null);
   const [score, setScore] = useState({ correct: 0, incorrect: 0 });
-  const [fadeAnim] = useState(new Animated.Value(1));
-  const [slideAnim] = useState(new Animated.Value(0));
+
+  // 애니메이션 값
+  const slideAnim = useRef(new Animated.Value(0)).current;
+  const fadeAnim = useRef(new Animated.Value(1)).current;
 
   // 화면 포커스 시 퀴즈 데이터 로드
   useFocusEffect(
@@ -69,12 +71,12 @@ export default function QuizScreen() {
       Animated.timing(slideAnim, {
         toValue: 0,
         duration: 300,
-        useNativeDriver: true,
+        useNativeDriver: false,
       }),
       Animated.timing(fadeAnim, {
         toValue: 1,
         duration: 300,
-        useNativeDriver: true,
+        useNativeDriver: false,
       }),
     ]).start();
   };
@@ -84,12 +86,12 @@ export default function QuizScreen() {
       Animated.timing(slideAnim, {
         toValue: 300,
         duration: 200,
-        useNativeDriver: true,
+        useNativeDriver: false,
       }),
       Animated.timing(fadeAnim, {
         toValue: 0,
         duration: 200,
-        useNativeDriver: true,
+        useNativeDriver: false,
       }),
     ]).start(callback);
   };
